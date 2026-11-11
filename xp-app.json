@@ -1,0 +1,7 @@
+{
+  "name": "2048",
+  "description": "Der 2048-Klassiker im XP-Stil: Zahlen schieben, gleiche Werte verschmelzen, 2048 erreichen – mit Animationen, Rückgängig und Rekord.",
+  "entry": "index.html",
+  "width": 480,
+  "height": 610
+}

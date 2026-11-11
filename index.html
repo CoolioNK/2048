@@ -1,0 +1,712 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2048</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: Tahoma, "Segoe UI", Verdana, system-ui, sans-serif;
+    background: #ece9d8;                 /* XP-Gesichtsfarbe */
+    color: #000;
+    display: flex; align-items: center; justify-content: center;
+    padding: 18px;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .app { width: min(100%, 440px); display: flex; flex-direction: column; gap: 12px; }
+
+  /* Kopfzeile: Titel + Punkte in Gruppenrahmen */
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .brand h1 { font-size: 38px; font-weight: bold; line-height: .95; color: #003c74; }
+  .brand .tag { font-size: 12px; margin-top: 6px; color: #6b6a5e; }
+  .hud { display: flex; gap: 10px; flex-shrink: 0; }
+  .group {
+    position: relative; min-width: 96px;
+    border: 1px solid #cfcabc; border-radius: 3px;
+    padding: 10px 10px 7px;
+    text-align: center;
+  }
+  .legend {
+    position: absolute; top: -7px; left: 8px;
+    padding: 0 4px; background: #ece9d8;
+    font-size: 11px; font-weight: bold; color: #0046d5;
+  }
+  .gval { font-size: 17px; font-weight: bold; color: #003c74; }
+  .pops { position: absolute; left: 0; right: 0; top: -4px; height: 0; pointer-events: none; }
+  .pop-score {
+    position: absolute; left: 0; right: 0; text-align: center;
+    font-size: 15px; font-weight: bold; color: #003c74;
+    animation: rise .75s ease-out forwards;
+  }
+  @keyframes rise { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-26px); } }
+
+  /* Spielfeld, versenkt wie ein XP-Eingabefeld */
+  .boardwrap { padding: 4px; border-radius: 2px; box-shadow: inset 1px 1px 0 rgba(0,0,0,.32), inset -1px -1px 0 rgba(255,255,255,.85); }
+  .board {
+    position: relative; width: 100%; aspect-ratio: 1;
+    background: linear-gradient(180deg, #d6d3c9, #c7c4b9);   /* Luna-Silber */
+    border-radius: 2px;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  .board.shake { animation: shake .16s; }
+  @keyframes shake { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+
+  .cells {
+    position: absolute; inset: 10px;
+    display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, 1fr); gap: 10px;
+  }
+  .cells i {
+    background: #e9e6da; border-radius: 2px;
+    box-shadow: inset 1px 1px 2px rgba(0,0,0,.18), inset -1px -1px 0 rgba(255,255,255,.65);
+  }
+
+  .layer { position: absolute; inset: 10px; }
+  .layer.no-anim .tile { transition: none !important; }
+  .tile {
+    position: absolute; top: 0; left: 0;
+    width: var(--cell); height: var(--cell); z-index: 1;
+    transition: transform .12s ease-in-out; will-change: transform;
+  }
+  .tile.ghost  { z-index: 2; }
+  .tile.spawn  { z-index: 3; }
+  .tile.merged { z-index: 4; }
+  .tile .inner {
+    width: 100%; height: 100%; border-radius: 3px;
+    border: 1px solid rgba(0,0,0,.2);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.4), inset 0 -2px 4px rgba(0,0,0,.14);
+    display: grid; place-items: center; font-weight: bold; line-height: 1;
+  }
+  .d12 { font-size: calc(var(--cell) * .44); }
+  .d3  { font-size: calc(var(--cell) * .35); }
+  .d4  { font-size: calc(var(--cell) * .27); }
+  .d5  { font-size: calc(var(--cell) * .21); }
+
+  /* Kachel-Farben: Luna-Palette – Blau-Rampe, dann die Windows-Flag-Farben */
+  .v2    .inner { background: #ffffff; color: #54524a; }
+  .v4    .inner { background: #dce9fa; color: #003c74; }
+  .v8    .inner { background: #b7d0f4; color: #003c74; }
+  .v16   .inner { background: #8ab6ee; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.25); }
+  .v32   .inner { background: #5d97e6; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.25); }
+  .v64   .inner { background: #3378dc; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.25); }
+  .v128  .inner { background: #1b5fca; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.25); }
+  .v256  .inner { background: #0d4cb8; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.25); }
+  .v512  .inner { background: #37923a; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.25); }
+  .v1024 .inner { background: #e08a00; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.25); }
+  .v2048 .inner {
+    background: #d9472b; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.25);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.4), inset 0 -2px 4px rgba(0,0,0,.18), 0 0 26px 8px rgba(217,71,43,.45);
+  }
+  .vsuper .inner {
+    background: #0a246a; color: #fff;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.3), inset 0 -2px 4px rgba(0,0,0,.3), 0 0 22px 7px rgba(10,36,106,.45);
+  }
+
+  .tile.spawn  .inner { animation: appear .18s ease-out .1s backwards; }
+  @keyframes appear { from { opacity: 0; transform: scale(.4); } }
+  .tile.merged .inner { animation: pop .2s ease-out .1s backwards; }
+  @keyframes pop { 0% { transform: scale(0); } 70% { transform: scale(1.15); } 100% { transform: scale(1); } }
+
+  /* Schaltflächen im XP-Stil */
+  .actions { display: flex; gap: 8px; justify-content: center; }
+  .btn {
+    font: 11px Tahoma, "Segoe UI", sans-serif; color: #000;
+    min-width: 74px; padding: 4px 14px 5px;
+    background: linear-gradient(180deg, #fff 0%, #f2f1ea 50%, #e6e3d6 88%, #dcd6c6 100%);
+    border: 1px solid #003c74; border-radius: 3px;
+    cursor: pointer;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.6);
+  }
+  .btn:hover:not(:disabled) { box-shadow: inset 0 0 0 2px rgba(251,167,26,.75); }
+  .btn:active:not(:disabled) {
+    background: linear-gradient(180deg, #dcd6c6 0%, #e8e5da 60%, #f2f1ea 100%);
+    box-shadow: inset 1px 1px 2px rgba(0,0,0,.25);
+  }
+  .btn:disabled {
+    color: #9d9a8e; text-shadow: 1px 1px 0 #fff;
+    border-color: #a8a495;
+    background: linear-gradient(180deg, #f4f3ee, #e9e7dc);
+    box-shadow: none; cursor: default;
+  }
+  .btn:focus-visible { outline: 1px dotted #003c74; outline-offset: -4px; }
+  .btn.primary { font-weight: bold; }
+
+  .hint { font-size: 11px; color: #8a877b; text-align: center; }
+
+  /* ===== XP-Nachrichtendialoge über dem Spielfeld ===== */
+  .overlay {
+    position: absolute; inset: 0; z-index: 10; border-radius: 2px;
+    background: rgba(0,0,0,.1); backdrop-filter: blur(2px);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity .25s;
+  }
+  .overlay.show { opacity: 1; pointer-events: auto; }
+  .xpdialog {
+    width: min(92%, 320px);
+    background: #ece9d8;
+    border: 1px solid #0842c8;
+    border-radius: 7px 7px 3px 3px;
+    overflow: hidden;
+    box-shadow: 0 8px 28px rgba(0,0,0,.5);
+  }
+  .dlgtitle {
+    height: 22px; display: flex; align-items: center; gap: 6px;
+    padding: 0 3px 0 6px;
+    background: linear-gradient(180deg,
+      rgb(9,151,255) 0%, rgb(0,83,238) 8%, rgb(0,80,238) 40%,
+      rgb(0,102,255) 88%, rgb(9,158,255) 93%, rgb(0,64,221) 95%, rgb(0,50,194) 96%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.35);
+  }
+  .dlgtitle .ttext {
+    font-size: 11px; font-weight: bold; color: #fff;
+    text-shadow: 1px 1px 1px rgba(0,0,0,.6);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tbtns { margin-left: auto; display: flex; gap: 2px; }
+  .tb {
+    width: 19px; height: 16px; position: relative; flex: none;
+    border: 1px solid rgba(255,255,255,.75); border-radius: 3px; cursor: pointer; padding: 0;
+    background: linear-gradient(180deg, #4ea0f8 0%, #0d5dd7 45%, #0454d4 55%, #0f65e8 100%);
+    box-shadow: inset 0 0 3px rgba(255,255,255,.35);
+  }
+  .tb:active { filter: brightness(1.2); }
+  .tb:focus-visible { outline: 1px dotted #fff; outline-offset: -3px; }
+  .tb.close { background: linear-gradient(180deg, #f5865a 0%, #de4a1e 45%, #d23a0f 55%, #e15b34 100%); }
+  .tb.close i {
+    position: absolute; left: 50%; top: 50%; width: 10px; height: 2.5px;
+    background: #fff; border-radius: 1px;
+    transform: translate(-50%, -50%) rotate(45deg);
+  }
+  .tb.close i + i { transform: translate(-50%, -50%) rotate(-45deg); }
+
+  .dlgrow { display: flex; align-items: center; gap: 14px; padding: 14px 14px 8px; }
+  .dlgbody { font-size: 12px; line-height: 1.5; white-space: pre-line; color: #000; }
+  .dlgbtns { display: flex; justify-content: flex-end; gap: 8px; padding: 2px 12px 12px; }
+
+  /* Nachrichtensymbole wie in XP */
+  .ico { width: 34px; height: 34px; flex: none; position: relative; border-radius: 50%; }
+  .ico.info {
+    background: radial-gradient(circle at 32% 28%, #9fd0ff 0%, #2f7ee0 55%, #1b57b8 100%);
+    box-shadow: inset 0 -4px 6px rgba(0,0,0,.25), 0 1px 2px rgba(0,0,0,.3);
+  }
+  .ico.info span {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    color: #fff; font: italic bold 22px Georgia, "Times New Roman", serif;
+  }
+  .ico.error {
+    background: radial-gradient(circle at 32% 28%, #ff9a8a 0%, #e04b2f 55%, #b03018 100%);
+    box-shadow: inset 0 -4px 6px rgba(0,0,0,.25), 0 1px 2px rgba(0,0,0,.3);
+  }
+  .ico.error i {
+    position: absolute; left: 50%; top: 50%; width: 19px; height: 3.5px;
+    background: #fff; border-radius: 2px;
+    transform: translate(-50%, -50%) rotate(45deg);
+  }
+  .ico.error i + i { transform: translate(-50%, -50%) rotate(-45deg); }
+
+  @media (max-height: 660px) {
+    body { padding: 12px; }
+    .app { gap: 10px; }
+    .brand h1 { font-size: 30px; }
+    .brand .tag { display: none; }
+  }
+</style>
+</head>
+<body>
+  <main class="app">
+    <header class="top">
+      <div class="brand">
+        <h1>2048</h1>
+        <p class="tag">Vereinige gleiche Zahlen und erreiche 2048!</p>
+      </div>
+      <div class="hud">
+        <div class="group">
+          <span class="legend">Punkte</span>
+          <div class="gval" id="scoreVal">0</div>
+          <div class="pops" id="scorePops"></div>
+        </div>
+        <div class="group">
+          <span class="legend">Rekord</span>
+          <div class="gval" id="bestVal">0</div>
+        </div>
+      </div>
+    </header>
+
+    <div class="boardwrap">
+      <section class="board" id="board" aria-label="Spielfeld">
+        <div class="cells" id="cells"></div>
+        <div class="layer" id="layer"></div>
+        <div class="overlay" id="overlay">
+          <div class="xpdialog" role="dialog" aria-modal="true">
+            <div class="dlgtitle">
+              <span class="ttext" id="dlgTitle"></span>
+              <div class="tbtns">
+                <button class="tb close" id="dlgClose" aria-label="Schließen"><i></i><i></i></button>
+              </div>
+            </div>
+            <div class="dlgrow">
+              <div id="dlgIcon"></div>
+              <div class="dlgbody" id="dlgBody"></div>
+            </div>
+            <div class="dlgbtns" id="dlgBtns"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <footer class="actions">
+      <button class="btn" id="undoBtn" title="Rückgängig (Z)">Rückgängig</button>
+      <button class="btn primary" id="newBtn">Neues Spiel</button>
+    </footer>
+
+    <p class="hint">Pfeiltasten · WASD · Wischen · Z = Rückgängig</p>
+  </main>
+
+<script>
+(() => {
+'use strict';
+
+/* ===== Sicherer Speicher =====
+   Die Sandbox erlaubt oft keine Cookies und keinen Browserspeicher.
+   Fehlt localStorage, wird automatisch nur im Speicher der laufenden
+   Sitzung gespeichert – die App läuft trotzdem fehlerfrei. */
+const store = (() => {
+  try {
+    const k = '__xp_test__';
+    localStorage.setItem(k, k);
+    localStorage.removeItem(k);
+    return localStorage;
+  } catch (e) {
+    const mem = new Map();
+    return {
+      getItem: k => (mem.has(k) ? mem.get(k) : null),
+      setItem: (k, v) => { mem.set(k, String(v)); },
+      removeItem: k => { mem.delete(k); }
+    };
+  }
+})();
+
+/* ===== Konstanten ===== */
+const SIZE = 4;              // Spielfeld 4x4
+const GAP = 10;              // muss mit CSS (inset:10px / gap:10px) übereinstimmen
+const VEC = { up: { r: -1, c: 0 }, down: { r: 1, c: 0 }, left: { r: 0, c: -1 }, right: { r: 0, c: 1 } };
+const KEY_STATE = 'xp2048.state';
+const KEY_BEST = 'xp2048.best';
+const KEYMAP = {
+  arrowup: 'up', arrowdown: 'down', arrowleft: 'left', arrowright: 'right',
+  w: 'up', a: 'left', s: 'down', d: 'right'
+};
+
+/* ===== DOM ===== */
+const $ = s => document.querySelector(s);
+const board = $('#board'), layer = $('#layer'), cellsEl = $('#cells');
+const scoreVal = $('#scoreVal'), bestVal = $('#bestVal');
+const scorePops = $('#scorePops');
+const overlay = $('#overlay'), dlgTitle = $('#dlgTitle'), dlgIcon = $('#dlgIcon'),
+      dlgBody = $('#dlgBody'), dlgBtns = $('#dlgBtns'), dlgClose = $('#dlgClose');
+const undoBtn = $('#undoBtn'), newBtn = $('#newBtn');
+
+/* ===== Zustand ===== */
+let grid = [];               // grid[reihe][spalte] -> Kachel oder null
+let tiles = new Map();       // id -> {id, value, r, c}
+let tileEls = new Map();     // id -> DOM-Element
+let nextId = 1;
+let score = 0, best = 0, moveCount = 0;
+let history = [];            // Schnappschüsse für „Rückgängig"
+let won = false, celebrated = false, keepPlaying = false, over = false;
+let overlayOpen = false, cancelAction = null;
+
+/* ===== Geometrie ===== */
+function cellPx() {
+  const w = layer.clientWidth;
+  return (w - GAP * (SIZE - 1)) / SIZE;
+}
+function place(el, r, c) {
+  const s = cellPx();
+  el.style.transform = 'translate(' + (c * (s + GAP)) + 'px,' + (r * (s + GAP)) + 'px)';
+}
+
+/* ===== Kacheln zeichnen ===== */
+function classOf(v) { return v <= 2048 ? 'v' + v : 'vsuper'; }
+function tileClass(t, extra) {
+  const d = String(t.value).length;
+  return 'tile ' + classOf(t.value) + ' d' + (d <= 2 ? 12 : d) + (extra ? ' ' + extra : '');
+}
+function makeTile(t, extra) {
+  const el = document.createElement('div');
+  el.className = tileClass(t, extra);
+  const inner = document.createElement('div');
+  inner.className = 'inner';
+  inner.textContent = t.value;
+  el.appendChild(inner);
+  place(el, t.r, t.c);          // Position vor dem Einfügen setzen: keine Animation von 0,0
+  layer.appendChild(el);
+  return el;
+}
+function renderFresh() {
+  layer.textContent = '';
+  tileEls = new Map();
+  layer.style.setProperty('--cell', cellPx() + 'px');
+  for (const t of tiles.values()) tileEls.set(t.id, makeTile(t));
+}
+
+/* Nach einem Zug: Kachen verschieben, verschmolzene Paare als Geister animieren */
+function syncMove(ghosts, mergedIds) {
+  layer.style.setProperty('--cell', cellPx() + 'px');
+  for (const g of ghosts) {
+    const el = tileEls.get(g.id);
+    if (!el) continue;
+    tileEls.delete(g.id);
+    el.classList.add('ghost');
+    place(el, g.r, g.c);
+    setTimeout(() => el.remove(), 170);
+  }
+  for (const t of tiles.values()) {
+    let el = tileEls.get(t.id);
+    if (!el) {
+      el = makeTile(t, mergedIds.has(t.id) ? 'merged' : '');
+      tileEls.set(t.id, el);
+    } else {
+      const cls = tileClass(t);
+      if (el.className !== cls) el.className = cls;
+      place(el, t.r, t.c);
+    }
+  }
+}
+
+/* ===== Spiellogik ===== */
+function rebuildGrid() {
+  grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+  for (const t of tiles.values()) grid[t.r][t.c] = t;
+}
+function snapshot() {
+  return {
+    tiles: [...tiles.values()].map(t => ({ value: t.value, r: t.r, c: t.c })),
+    score, moveCount, won, keepPlaying
+  };
+}
+function movesAvailable() {
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const t = grid[r][c];
+    if (!t) return true;
+    if (c + 1 < SIZE && grid[r][c + 1] && grid[r][c + 1].value === t.value) return true;
+    if (r + 1 < SIZE && grid[r + 1][c] && grid[r + 1][c].value === t.value) return true;
+  }
+  return false;
+}
+function spawnTile(animate) {
+  const empty = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) if (!grid[r][c]) empty.push({ r, c });
+  if (!empty.length) return;
+  const cell = empty[Math.floor(Math.random() * empty.length)];
+  const t = { id: nextId++, value: Math.random() < 0.9 ? 2 : 4, r: cell.r, c: cell.c };
+  tiles.set(t.id, t);
+  grid[t.r][t.c] = t;
+  if (animate !== false) tileEls.set(t.id, makeTile(t, 'spawn'));
+}
+
+function move(dir) {
+  if (overlayOpen || over) return;
+  const v = VEC[dir];
+  const rows = [0, 1, 2, 3], cols = [0, 1, 2, 3];
+  if (v.r === 1) rows.reverse();
+  if (v.c === 1) cols.reverse();
+
+  const snap = snapshot();
+  const mergedIds = new Set(), ghosts = [];
+  let moved = false, gained = 0;
+
+  for (const r of rows) for (const c of cols) {
+    const t = grid[r][c];
+    if (!t) continue;
+
+    // Leere Felder in Zugrichtung bis zum Anschlag durchlaufen
+    let nr = r, nc = c;
+    for (;;) {
+      const ar = nr + v.r, ac = nc + v.c;
+      if (ar < 0 || ar >= SIZE || ac < 0 || ac >= SIZE || grid[ar][ac]) break;
+      nr = ar; nc = ac;
+    }
+    const ar = nr + v.r, ac = nc + v.c;
+    const other = (ar >= 0 && ar < SIZE && ac >= 0 && ac < SIZE) ? grid[ar][ac] : null;
+
+    if (other && other.value === t.value && !mergedIds.has(other.id) && !mergedIds.has(t.id)) {
+      // Verschmelzen: beide Ausgangskacheln werden Geister, neue Kachel erscheint
+      grid[r][c] = null;
+      grid[ar][ac] = null;
+      const nt = { id: nextId++, value: t.value * 2, r: ar, c: ac };
+      tiles.delete(t.id); tiles.delete(other.id);
+      tiles.set(nt.id, nt);
+      grid[ar][ac] = nt;
+      mergedIds.add(nt.id);
+      gained += nt.value;
+      if (nt.value === 2048 && !won) won = true;
+      ghosts.push({ id: t.id, r: ar, c: ac }, { id: other.id, r: ar, c: ac });
+      moved = true;
+    } else if (nr !== r || nc !== c) {
+      grid[r][c] = null;
+      grid[nr][nc] = t;
+      t.r = nr; t.c = nc;
+      moved = true;
+    }
+  }
+
+  if (!moved) { shake(); return; }
+
+  history.push(snap);
+  if (history.length > 64) history.shift();
+
+  score += gained;
+  moveCount++;
+  if (score > best) { best = score; try { store.setItem(KEY_BEST, String(best)); } catch (e) {} }
+  updateHUD(gained);
+  syncMove(ghosts, mergedIds);
+  spawnTile(true);
+  saveState();
+  undoBtn.disabled = false;
+
+  if (won && !celebrated && !keepPlaying) celebrate();
+  if (!overlayOpen && !movesAvailable()) gameOver();
+}
+
+function shake() {
+  board.classList.remove('shake');
+  void board.offsetWidth;
+  board.classList.add('shake');
+}
+
+function undo() {
+  if (!history.length || overlayOpen) return;
+  const s = history.pop();
+  tiles = new Map();
+  for (const t of s.tiles) tiles.set(nextId++, { id: nextId - 1, value: t.value, r: t.r, c: t.c });
+  rebuildGrid();
+  score = s.score; moveCount = s.moveCount;
+  won = s.won; keepPlaying = s.keepPlaying;
+  over = false;
+  renderFresh();
+  updateHUD(0);
+  undoBtn.disabled = history.length === 0;
+  saveState();
+}
+
+function newGame() {
+  closeDialog();
+  tiles = new Map();
+  nextId = 1;
+  score = 0; moveCount = 0;
+  history = [];
+  won = false; celebrated = false; keepPlaying = false; over = false;
+  rebuildGrid();
+  spawnTile(false); spawnTile(false);
+  renderFresh();
+  updateHUD(0);
+  undoBtn.disabled = true;
+  saveState();
+}
+
+/* ===== Oberfläche ===== */
+function updateHUD(gained) {
+  scoreVal.textContent = score;
+  bestVal.textContent = best;
+  if (gained > 0) {
+    const p = document.createElement('span');
+    p.className = 'pop-score';
+    p.textContent = '+' + gained;
+    scorePops.appendChild(p);
+    setTimeout(() => p.remove(), 780);
+  }
+}
+
+/* ===== XP-Nachrichtendialoge ===== */
+function iconFor(kind) {
+  const el = document.createElement('div');
+  el.className = 'ico ' + kind;
+  if (kind === 'info') {
+    const s = document.createElement('span');
+    s.textContent = 'i';
+    el.appendChild(s);
+  } else if (kind === 'error') {
+    el.appendChild(document.createElement('i'));
+    el.appendChild(document.createElement('i'));
+  }
+  return el;
+}
+
+function xpDialog(opts) {
+  dlgTitle.textContent = opts.title;
+  dlgBody.textContent = opts.body;
+  dlgIcon.textContent = '';
+  if (opts.icon) { dlgIcon.style.display = ''; dlgIcon.appendChild(iconFor(opts.icon)); }
+  else dlgIcon.style.display = 'none';
+  dlgBtns.textContent = '';
+  for (const b of (opts.buttons || [{ label: 'OK' }])) {
+    const el = document.createElement('button');
+    el.className = 'btn';
+    el.textContent = b.label;
+    el.addEventListener('click', () => { closeDialog(); if (b.action) b.action(); });
+    dlgBtns.appendChild(el);
+  }
+  cancelAction = opts.cancel || null;
+  overlay.classList.add('show');
+  overlayOpen = true;
+}
+function closeDialog() {
+  overlay.classList.remove('show');
+  overlayOpen = false;
+  cancelAction = null;
+}
+
+dlgClose.addEventListener('click', () => {
+  if (cancelAction) { const c = cancelAction; closeDialog(); c(); }
+  else { const first = dlgBtns.querySelector('button'); if (first) first.click(); else closeDialog(); }
+});
+
+function celebrate() {
+  celebrated = true;
+  xpDialog({
+    title: '2048',
+    icon: 'info',
+    body: 'Du hast das Ziel geschafft!\n\nWillst du weiterspielen?',
+    buttons: [
+      { label: 'Weiter spielen', action: () => { keepPlaying = true; if (!movesAvailable()) gameOver(); } },
+      { label: 'Neues Spiel', action: newGame }
+    ],
+    cancel: () => { keepPlaying = true; if (!movesAvailable()) gameOver(); }
+  });
+}
+function gameOver() {
+  over = true;
+  saveState();
+  const hasHistory = history.length > 0;
+  xpDialog({
+    title: 'Keine Züge mehr',
+    icon: 'error',
+    body: 'Dein Ergebnis: ' + score + ' Punkte.' + (score > 0 && score >= best ? '\nNeuer Rekord!' : ''),
+    buttons: [{ label: 'Nochmal versuchen', action: newGame }]
+      .concat(hasHistory ? [{ label: 'Rückgängig', action: undo }] : []),
+    cancel: hasHistory ? undo : null
+  });
+}
+
+/* ===== Speichern / Laden ===== */
+function saveState() {
+  try {
+    store.setItem(KEY_STATE, JSON.stringify({
+      tiles: [...tiles.values()].map(t => ({ value: t.value, r: t.r, c: t.c })),
+      score, moveCount, won, keepPlaying, over
+    }));
+  } catch (e) {}
+}
+function tryRestore() {
+  try {
+    const raw = store.getItem(KEY_STATE);
+    if (!raw) return false;
+    const s = JSON.parse(raw);
+    if (!s || !Array.isArray(s.tiles) || !s.tiles.length || s.tiles.length > SIZE * SIZE) return false;
+    if (s.over) return false;
+    const ok = s.tiles.every(t =>
+      Number.isInteger(t.value) && t.value >= 2 &&
+      Number.isInteger(t.r) && t.r >= 0 && t.r < SIZE &&
+      Number.isInteger(t.c) && t.c >= 0 && t.c < SIZE);
+    if (!ok) return false;
+    tiles = new Map();
+    for (const t of s.tiles) tiles.set(nextId++, { id: nextId - 1, value: t.value, r: t.r, c: t.c });
+    rebuildGrid();
+    let count = 0;
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) if (grid[r][c]) count++;
+    if (count !== s.tiles.length) return false;
+    score = Number.isInteger(s.score) && s.score >= 0 ? s.score : 0;
+    moveCount = Number.isInteger(s.moveCount) && s.moveCount >= 0 ? s.moveCount : 0;
+    won = !!s.won; celebrated = won; keepPlaying = !!s.keepPlaying;
+    return true;
+  } catch (e) { return false; }
+}
+
+/* ===== Eingaben ===== */
+function onKey(e) {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (overlayOpen) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      const first = dlgBtns.querySelector('button');
+      if (first) first.click();
+    } else if (e.key === 'Escape') {
+      if (cancelAction) { const c = cancelAction; closeDialog(); c(); }
+      else { const first = dlgBtns.querySelector('button'); if (first) first.click(); }
+    }
+    return;
+  }
+  const k = e.key.toLowerCase();
+  const dir = KEYMAP[k];
+  if (dir) { e.preventDefault(); move(dir); return; }
+  if (k === 'z' || k === 'y' || e.key === 'Backspace') { e.preventDefault(); undo(); }
+}
+function addSwipe(el) {
+  let sx = 0, sy = 0, active = false;
+  el.addEventListener('touchstart', e => {
+    const t = e.changedTouches[0];
+    sx = t.clientX; sy = t.clientY; active = true;
+  }, { passive: true });
+  el.addEventListener('touchmove', e => { if (active) e.preventDefault(); }, { passive: false });
+  el.addEventListener('touchend', e => {
+    if (!active) return;
+    active = false;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - sx, dy = t.clientY - sy;
+    const ax = Math.abs(dx), ay = Math.abs(dy);
+    if (Math.max(ax, ay) < 24) return;
+    move(ax > ay ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+  });
+}
+
+/* ===== Größe ändern: ohne Animation neu ausrichten ===== */
+function relayout() {
+  layer.classList.add('no-anim');
+  layer.style.setProperty('--cell', cellPx() + 'px');
+  for (const [id, el] of tileEls) {
+    const t = tiles.get(id);
+    if (t) place(el, t.r, t.c);
+  }
+  requestAnimationFrame(() => requestAnimationFrame(() => layer.classList.remove('no-anim')));
+}
+
+/* ===== Start ===== */
+function init() {
+  for (let i = 0; i < SIZE * SIZE; i++) cellsEl.appendChild(document.createElement('i'));
+
+  best = parseInt(store.getItem(KEY_BEST) || '0', 10) || 0;
+
+  if (!tryRestore()) {
+    tiles = new Map();
+    rebuildGrid();
+    spawnTile(false); spawnTile(false);
+  }
+  renderFresh();
+  updateHUD(0);
+  undoBtn.disabled = true;
+
+  window.addEventListener('keydown', onKey);
+  addSwipe(board);
+  undoBtn.addEventListener('click', undo);
+  newBtn.addEventListener('click', newGame);
+
+  relayout();
+  window.addEventListener('resize', relayout);
+  if (window.ResizeObserver) {
+    let first = true;
+    new ResizeObserver(() => {
+      if (first) { first = false; return; }
+      relayout();
+    }).observe(layer);
+  }
+}
+
+init();
+})();
+</script>
+</body>
+</html>
